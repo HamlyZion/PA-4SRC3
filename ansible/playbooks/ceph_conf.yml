@@ -1,0 +1,104 @@
+---
+- name: Install Ceph packages on all nodes
+  hosts: pve
+  tasks:
+    - name: pveceph install (no-subscription repo)
+      ansible.builtin.command: pveceph install --repository no-subscription
+      args:
+        creates: /etc/apt/sources.list.d/ceph.sources
+
+- name: Initialize Ceph on primary
+  hosts: pve_primary
+  tasks:
+    - name: pveceph init on the storage network
+      ansible.builtin.command: >
+        pveceph init
+        --network {{ ceph_network }}
+        --cluster-network {{ ceph_network }}
+      args:
+        creates: /etc/pve/ceph.conf
+
+- name: Monitors, managers, OSDs (one node at a time)
+  hosts: pve
+  serial: 1
+  tasks:
+    - name: Create monitor
+      ansible.builtin.command: pveceph mon create
+      args:
+        creates: "/var/lib/ceph/mon/ceph-{{ inventory_hostname }}"
+
+    - name: Create manager
+      ansible.builtin.command: pveceph mgr create
+      args:
+        creates: "/var/lib/ceph/mgr/ceph-{{ inventory_hostname }}"
+
+    - name: Check whether an OSD already uses /dev/sdb
+      ansible.builtin.command: pvs /dev/sdb
+      register: sdb_lvm
+      failed_when: false
+      changed_when: false
+
+    - name: Create OSD on /dev/sdb
+      ansible.builtin.command: pveceph osd create /dev/sdb
+      when: sdb_lvm.rc != 0
+
+    - name: Create MDS (for CephFS)
+      ansible.builtin.command: pveceph mds create
+      args:
+        creates: "/var/lib/ceph/mds/ceph-{{ inventory_hostname }}"
+
+- name: Pools and PVE storages
+  hosts: pve_primary
+  tasks:
+    - name: Wait for all 3 OSDs to be up
+      ansible.builtin.shell: ceph osd stat | grep -q '3 up'
+      register: osds
+      retries: 20
+      delay: 15
+      until: osds.rc == 0
+      changed_when: false
+
+    - name: Existing PVE storages
+      ansible.builtin.command: pvesm status
+      register: pvesm
+      changed_when: false
+
+    - name: Default new pools to autoscaled PGs
+      ansible.builtin.command: ceph config set global osd_pool_default_pg_autoscale_mode on
+      changed_when: true
+
+    - name: Create RBD pool for VM disks (+ auto-add as PVE storage 'vm-pool')
+      ansible.builtin.command: pveceph pool create vm-pool --add_storages
+      when: "'vm-pool' not in pvesm.stdout"
+
+      # 3 OSD pour trois noeuds font trop de placement groups pour vm-pool (128) et le cephfs(128 aussi) (max à 250), on double la précaution
+    - name: Enable PG autoscaler on vm-pool (frees PG budget on 3-OSD cluster)
+      ansible.builtin.command: ceph osd pool set vm-pool pg_autoscale_mode on
+      register: autoscale
+      changed_when: autoscale.rc == 0 and autoscale.stdout is search('set pool') 
+
+    - name: Wait for PG count to shrink below budget
+      ansible.builtin.shell: ceph osd pool get vm-pool pg_num -f json | python3 -c "import sys,json; sys.exit(0 if json.load(sys.stdin)['pg_num'] <= 64 else 1)"
+      register: pgnum
+      retries: 60
+      delay: 10
+      until: pgnum.rc == 0
+      changed_when: false
+
+    - name: Create CephFS for backups/ISOs (+ auto-add as PVE storage 'cephfs')
+      ansible.builtin.command: pveceph fs create --name cephfs --add-storage
+      when: "'cephfs' not in pvesm.stdout"
+
+    - name: Allow backups on the CephFS storage
+      ansible.builtin.command: pvesm set cephfs --content backup,iso,vztmpl
+      when: "'cephfs' not in pvesm.stdout"
+
+    - name: Cluster health
+      ansible.builtin.command: ceph -s
+      register: health
+      changed_when: false
+
+    - name: Show
+      ansible.builtin.debug:
+        msg: "{{ health.stdout_lines }}"
+

@@ -1,0 +1,39 @@
+---
+- name: Create cluster on primary
+  hosts: pve_primary
+  tasks:
+    - name: Check if node is already clustered
+      ansible.builtin.stat:
+        path: /etc/pve/corosync.conf
+      register: corosync
+
+    - name: pvecm create
+      ansible.builtin.command: "pvecm create {{ cluster_name }}"
+      when: not corosync.stat.exists
+
+- name: Join secondary nodes
+  hosts: pve:!pve_primary
+  serial: 1 # 1 par 1 le join du cluster sinon probleme
+  tasks:
+    - name: Check if node is already clustered
+      ansible.builtin.stat:
+        path: /etc/pve/corosync.conf
+      register: corosync
+    
+    # Via inte-node SSH permis par le playbook base install
+    - name: pvecm add 
+      ansible.builtin.command: "pvecm add 10.10.10.11 --use_ssh"
+      when: not corosync.stat.exists
+
+- name: Verify quorum
+  hosts: pve_primary
+  tasks:
+    - name: pvecm status
+      ansible.builtin.command: pvecm status
+      register: st
+      changed_when: false
+
+    - name: Show
+      ansible.builtin.debug:
+        msg: "{{ st.stdout_lines }}"
+
