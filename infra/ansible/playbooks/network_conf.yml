@@ -1,0 +1,17 @@
+---
+# ens18=mgmt (vmbr0 created by installer) ens19=storage, ens20=production.
+- name: Node network configuration
+  hosts: pve
+  tasks:
+    - name: Deploy /etc/network/interfaces
+      ansible.builtin.template:
+        src: ../templates/interfaces.j2
+        dest: /etc/network/interfaces
+        mode: "0644"
+        backup: true
+      notify: Reload networking
+
+  handlers:
+    - name: Reload networking
+      ansible.builtin.command: ifreload -a
+

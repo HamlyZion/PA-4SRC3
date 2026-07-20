@@ -1,0 +1,32 @@
+# Managed by Ansible from {{ lookup('pipe', 'hostname') }} — target: {{ inventory_hostname }}
+auto lo
+iface lo inet loopback
+
+iface ens18 inet manual
+
+# MGMT
+auto vmbr0
+iface vmbr0 inet static
+    address {{ ansible_host }}/24
+    gateway 10.10.10.1
+    bridge-ports ens18
+    bridge-stp off
+    bridge-fd 0
+    description MGMT
+
+# CEPH
+auto ens19
+iface ens19 inet static
+    address {{ storage_ip }}/24
+    mtu 9000
+    description CEPH
+
+iface ens20 inet manual
+
+# PROD
+auto vmbr1
+iface vmbr1 inet manual
+    bridge-ports ens20
+    bridge-stp off
+    bridge-fd 0
+    description SERVICES
