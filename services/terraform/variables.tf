@@ -56,7 +56,7 @@ variable "prod_vms" {
   default = {
     dns01    = { vmid = 210, ip = "10.10.30.10/24", node = "pve-node-1", cores = 2, memory = 2048, data_disk = 0 }
     krb01    = { vmid = 212, ip = "10.10.30.12/24", node = "pve-node-2", cores = 2, memory = 2048, data_disk = 0 }
-    docker01 = { vmid = 213, ip = "10.10.30.13/24", node = "pve-node-3", cores = 4, memory = 6144, data_disk = 30 }
+    docker01 = { vmid = 213, ip = "10.10.30.13/24", node = "pve-node-1", cores = 4, memory = 6144, data_disk = 30 }
   }
 }
 
