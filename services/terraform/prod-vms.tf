@@ -45,7 +45,8 @@ resource "proxmox_virtual_environment_vm" "prod" {
   serial_device {}
 
   agent {
-    enabled = false
+    enabled = true
+    timeout = "5m"
   }
 
   initialization {

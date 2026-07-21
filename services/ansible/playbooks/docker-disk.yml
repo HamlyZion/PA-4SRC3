@@ -1,0 +1,56 @@
+---
+- name: Docker01 data disk
+  hosts: docker01
+  gather_facts: true
+  tasks:
+    - name: Check whether vg_data already exists
+      ansible.builtin.set_fact:
+        vg_exists: "{{ ansible_lvm.vgs.vg_data is defined }}"
+
+    - name: Nothing to do, volume already provisioned
+      ansible.builtin.debug:
+        msg: "vg_data déjà présent sur {{ inventory_hostname }} — découverte de disque sautée."
+      when: vg_exists
+
+    - name: Provision the data disk
+      when: not vg_exists
+      block:
+        - name: Discover the empty data disk (no partitions, no holders)
+          ansible.builtin.set_fact:
+            data_disk: "/dev/{{ item.key }}"
+          loop: "{{ ansible_devices | dict2items }}"
+          when:
+            - item.key is match('^sd')
+            - item.value.partitions | length == 0
+            - item.value.holders | length == 0
+          no_log: true
+
+        - name: Refuse to continue without a candidate
+          ansible.builtin.assert:
+            that: data_disk is defined
+            fail_msg: "Aucun disque data vierge détecté sur {{ inventory_hostname }}"
+
+        - name: VG data on discovered disk
+          community.general.lvg:
+            vg: vg_data
+            pvs: "{{ data_disk }}"
+
+    - name: LV for docker
+      community.general.lvol:
+        vg: vg_data
+        lv: docker
+        size: 100%FREE
+        shrink: false
+
+    - name: Filesystem
+      community.general.filesystem:
+        fstype: xfs
+        dev: /dev/vg_data/docker
+
+    - name: "Mount /var/lib/docker "
+      ansible.posix.mount:
+        path: /var/lib/docker
+        src: /dev/vg_data/docker
+        fstype: xfs
+        opts: nodev,nosuid
+        state: mounted

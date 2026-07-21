@@ -1,0 +1,12 @@
+; Managed by Ansible — zone inverse 10.10.30.0/24
+$TTL 3600
+@   IN SOA dns01.poc.bencopharma.lab. hostmaster.poc.bencopharma.lab. (
+        {{ zone_serial }} ; serial
+        3600 900 604800 300 )
+    IN NS dns01.poc.bencopharma.lab.
+
+10  IN PTR dns01.poc.bencopharma.lab.
+11  IN PTR dc01.ad.poc.bencopharma.lab.
+12  IN PTR krb01.poc.bencopharma.lab.
+13  IN PTR docker01.poc.bencopharma.lab.
+

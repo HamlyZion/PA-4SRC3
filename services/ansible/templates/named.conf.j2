@@ -1,0 +1,54 @@
+// Managed by Ansible - dns01.poc.bencopharma.lab
+acl "lab" {
+    127.0.0.1;
+{% for net in lab_networks %}
+    {{ net }};
+{% endfor %}
+};
+
+options {
+    listen-on port 53 { 127.0.0.1; 10.10.30.10; };
+    listen-on-v6 { none; };
+    directory "/var/named";
+    dump-file "/var/named/data/cache_dump.db";
+    statistics-file "/var/named/data/named_stats.txt";
+
+    allow-query { lab; };
+    recursion yes;
+    allow-recursion { lab; };
+
+    forwarders {
+{% for fwd in upstream_forwarders %}
+        {{ fwd }};
+{% endfor %}
+    };
+    forward only;
+
+    // PoC : zones internes non signees, resolution via forwarders
+    dnssec-validation no;
+
+    pid-file "/run/named/named.pid";
+};
+
+logging {
+    channel default_log {
+        file "data/named.run" versions 3 size 20m;
+        severity info;
+        print-time yes;
+    };
+    category default { default_log; };
+    category queries { default_log; };
+};
+
+zone "poc.bencopharma.lab" IN {
+    type master;
+    file "db.poc.bencopharma.lab";
+    allow-update { none; };
+};
+
+zone "30.10.10.in-addr.arpa" IN {
+    type master;
+    file "db.30.10.10";
+    allow-update { none; };
+};
+

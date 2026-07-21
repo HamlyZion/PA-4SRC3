@@ -36,7 +36,7 @@ variable "ci_ssh_key" {
 variable "prod_dns" {
   description = "Résolveur des VMs prod (10.10.30.1 = dnsmasq, bascule vers dns01 plus tard)"
   type        = string
-  default     = "10.10.30.1"
+  default     = "10.10.30.10"
 }
 
 variable "prod_domain" {

@@ -1,0 +1,100 @@
+---
+- name: BIND9 on dns01
+  hosts: dns01
+  gather_facts: true
+  vars:
+    zone_serial: 2026072001          # AAAA MM JJ NN -> à modifier à chaque changement de version
+    lab_networks:
+      - 10.10.10.0/24
+      - 10.10.20.0/24
+      - 10.10.30.0/24
+    upstream_forwarders:
+      - 213.186.33.99
+      - 1.1.1.1
+  tasks:
+    - name: Install bind
+      ansible.builtin.dnf:
+        name:
+          - bind
+          - bind-utils
+        state: present
+
+    - name: Deploy named.conf
+      ansible.builtin.template:
+        src: ../templates/named.conf.j2
+        dest: /etc/named.conf
+        owner: root
+        group: named
+        mode: "0640"
+        validate: named-checkconf %s
+      notify: Reload named
+
+    - name: Deploy forward zone
+      ansible.builtin.template:
+        src: ../templates/db.poc.j2
+        dest: /var/named/db.poc.bencopharma.lab
+        owner: root
+        group: named
+        mode: "0640"
+        validate: named-checkzone poc.bencopharma.lab %s
+      notify: Reload named
+
+    - name: Deploy reverse zone (prod)
+      ansible.builtin.template:
+        src: ../templates/db.30.10.10.j2
+        dest: /var/named/db.30.10.10
+        owner: root
+        group: named
+        mode: "0640"
+        validate: named-checkzone 30.10.10.in-addr.arpa %s
+      notify: Reload named
+
+    - name: Open DNS in firewalld
+      ansible.posix.firewalld:
+        service: dns
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Enable named
+      ansible.builtin.systemd:
+        name: named
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload named
+      ansible.builtin.systemd:
+        name: named
+        state: reloaded
+
+- name: Switch prod resolvers to dns01
+  hosts: prod:!dns01
+  tasks:
+    - name: Point VMs NetworkManager at dns01
+      ansible.builtin.shell: |
+        CON=$(nmcli -g GENERAL.CONNECTION device show "{{ ansible_default_ipv4.interface }}")
+        CURRENT=$(nmcli -g ipv4.dns connection show "$CON")
+        if [ "$CURRENT" != "10.10.30.10" ]; then
+          nmcli connection modify "$CON" ipv4.dns 10.10.30.10 ipv4.dns-search poc.bencopharma.lab
+          nmcli connection up "$CON"
+          echo CHANGED
+        fi
+      register: dns_switch
+      changed_when: dns_switch.stdout is search('CHANGED')
+
+- name: dns01 auto-resolving
+  hosts: dns01
+  tasks:
+    - name: Point dns01 NetworkManager at 127.0.0.1
+      ansible.builtin.shell: |
+        CON=$(nmcli -g GENERAL.CONNECTION device show "{{ ansible_default_ipv4.interface }}")
+        CURRENT=$(nmcli -g ipv4.dns connection show "$CON")
+        if [ "$CURRENT" != "127.0.0.1" ]; then
+          nmcli connection modify "$CON" ipv4.dns 127.0.0.1 ipv4.dns-search poc.bencopharma.lab
+          nmcli connection up "$CON"
+          echo CHANGED
+        fi
+      register: dns_self
+      changed_when: dns_self.stdout is search('CHANGED')
+

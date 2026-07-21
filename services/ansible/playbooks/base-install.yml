@@ -1,0 +1,56 @@
+---
+- name: Base configuration prod VMs
+  hosts: prod
+  gather_facts: true
+  tasks:
+    - name: Set FQDN hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}.{{ domain }}"
+
+    - name: Update all packages
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: true
+
+    - name: Install base tooling
+      ansible.builtin.dnf:
+        name:
+          - qemu-guest-agent
+          - chrony
+          - vim
+          - bind-utils
+          - policycoreutils-python-utils
+          - lvm2
+        state: present
+
+    - name: Enable services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - qemu-guest-agent
+        - chronyd
+        - fstrim.timer
+
+    - name: Populate /etc/hosts with lab services
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} POC LAB"
+        block: |
+          10.10.30.10 dns01.{{ domain }} dns01
+          10.10.30.11 dc01.ad.{{ domain }} dc01
+          10.10.30.12 krb01.{{ domain }} krb01
+          10.10.30.13 docker01.{{ domain }} docker01
+
+    - name: Distribute internal CA
+      ansible.builtin.copy:
+        src: "{{ lookup('env','HOME') }}/pki/ca.crt"
+        dest: /etc/pki/ca-trust/source/anchors/bencopharma-poc-ca.crt
+        mode: "0644"
+      register: ca_cert
+
+    - name: Update CA trust
+      ansible.builtin.command: update-ca-trust
+      when: ca_cert.changed

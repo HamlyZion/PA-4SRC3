@@ -1,0 +1,34 @@
+; Managed by Ansible — zone poc.bencopharma.lab
+$TTL 3600
+@   IN SOA dns01.poc.bencopharma.lab. hostmaster.poc.bencopharma.lab. (
+        {{ zone_serial }} ; serial
+        3600              ; refresh
+        900               ; retry
+        604800            ; expire
+        300 )             ; negative TTL
+    IN NS dns01.poc.bencopharma.lab.
+
+; --- Infrastructure ---
+dns01     IN A 10.10.30.10
+krb01     IN A 10.10.30.12
+docker01  IN A 10.10.30.13
+mgmt01    IN A 10.10.10.5
+
+; Délégation du sous-domaine AD
+ad        IN NS dc01.ad.poc.bencopharma.lab.
+dc01.ad   IN A  10.10.30.11              ; glue record
+
+; Services (docker01)
+mattermost IN CNAME docker01
+mail       IN CNAME docker01
+smtp       IN CNAME docker01
+imap       IN CNAME docker01
+@          IN MX 10 docker01.poc.bencopharma.lab.
+
+; Royaume Kerberos
+_kerberos                TXT  "KRB.POC.BENCOPHARMA.LAB"
+_kerberos._udp           SRV  0 0 88  krb01
+_kerberos._tcp           SRV  0 0 88  krb01
+_kerberos-adm._tcp       SRV  0 0 749 krb01
+_kpasswd._udp            SRV  0 0 464 krb01
+
