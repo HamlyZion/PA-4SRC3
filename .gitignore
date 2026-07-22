@@ -48,5 +48,8 @@ terraform.rc
 
 # Retry files generated for failed Ansible playbook runs
 *.retry
+.vault_password
+secrets.yml
+
 
 *.iso

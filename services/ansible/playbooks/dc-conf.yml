@@ -1,0 +1,94 @@
+---
+- name: Make dns01 the NTP server
+  hosts: dns01
+  tasks:
+    - name: Allow prod network in chrony
+      ansible.builtin.lineinfile:
+        path: /etc/chrony.conf
+        line: "allow 10.10.30.0/24"
+        regexp: "^allow 10.10.30"
+      notify: Restart chronyd
+  handlers:
+    - name: Restart chronyd
+      ansible.builtin.systemd:
+        name: chronyd
+        state: restarted
+
+- name: Promote dc01 to Domain Controller
+  hosts: dc01
+  tasks:
+    - name: Wait for WinRM
+      ansible.builtin.wait_for_connection:
+        timeout: 2400
+
+    - name: Sync time from dns01 (before Kerberos exists)
+      ansible.windows.win_shell: |
+        w32tm /config /syncfromflags:manual /manualpeerlist:"10.10.30.10" /update
+        w32tm /resync /force
+      changed_when: true
+
+    - name: Create forest ad.poc.bencopharma.lab
+      microsoft.ad.domain:
+        dns_domain_name: ad.poc.bencopharma.lab
+        safe_mode_password: "{{ dsrm_password }}"
+        install_dns: true
+        reboot: true
+
+    - name: Set Network Profile to private
+      ansible.windows.win_shell: |
+        $p = Get-NetConnectionProfile
+        if ($p.NetworkCategory -eq 'Public') {
+          Restart-Service NlaSvc -Force
+          Start-Sleep -Seconds 10
+          $p = Get-NetConnectionProfile
+          if ($p.NetworkCategory -eq 'Public') {
+            Set-NetConnectionProfile -InterfaceIndex $p.InterfaceIndex -NetworkCategory Private
+          }
+          Write-Output CHANGED
+        }
+      register: nla
+      changed_when: nla.stdout is search('CHANGED')
+
+    - name: DNS forwarder to dns01
+      ansible.windows.win_shell: |
+        if (-not (Get-DnsServerForwarder | Where-Object {$_.IPAddress -contains '10.10.30.10'})) {
+          Add-DnsServerForwarder -IPAddress 10.10.30.10
+          Write-Output CHANGED
+        }
+      register: fwd
+      changed_when: fwd.stdout is search('CHANGED')
+
+    - name: Create PoC Users OU
+      microsoft.ad.ou:
+        name: _Benco Users
+        path: DC=ad,DC=poc,DC=bencopharma,DC=lab
+        state: present
+
+    - name: Create PoC Groups OU
+      microsoft.ad.ou:
+        name: _Benco Groups
+        path: DC=ad,DC=poc,DC=bencopharma,DC=lab
+        state: present
+
+    - name: Create demo user
+      microsoft.ad.user:
+        name: alice
+        firstname: Alice
+        surname: Martin
+        sam_account_name: alice.martin
+        upn: alice@ad.poc.bencopharma.lab
+        password: "{{ alice_password }}"
+        password_never_expires: true
+        path: OU=_Benco Users,DC=ad,DC=poc,DC=bencopharma,DC=lab
+        state: present
+
+    - name: Create Trust group for Linux env
+      microsoft.ad.group:
+        name: GG-Linux-Users
+        scope: global
+        path: OU=_Benco Groups,DC=ad,DC=poc,DC=bencopharma,DC=lab
+        members:
+          add:
+            - alice.martin
+        state: present
+
