@@ -8,7 +8,7 @@ resource "proxmox_virtual_environment_vm" "dc01" {
   machine       	= "q35"
   bios          	= "seabios"
   scsi_hardware 	= "virtio-scsi-single"
-  started 		= false
+  started 		= true
 
   cpu {
     cores = 4
@@ -43,7 +43,7 @@ resource "proxmox_virtual_environment_vm" "dc01" {
 
   agent {
     enabled = true
-    timeout = "60m"
+    timeout = "2m"
   }
 
   lifecycle {

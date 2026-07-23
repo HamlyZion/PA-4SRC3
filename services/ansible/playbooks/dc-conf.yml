@@ -34,6 +34,27 @@
         install_dns: true
         reboot: true
 
+    - name: Ensure C:\Temp exists
+      ansible.windows.win_file:
+        path: C:\Temp
+        state: directory
+
+    - name: Download qemu-ga standalone installer
+      ansible.windows.win_get_url:
+        url: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-qemu-ga/qemu-ga-win-110.0.2-1.el10/qemu-ga-x86_64.msi
+        dest: C:\Temp\qemu-ga-x86_64.msi
+
+    - name: Install QEMU guest agent
+      ansible.windows.win_package:
+        path: C:\Temp\qemu-ga-x86_64.msi
+        state: present
+
+    - name: Agent service running
+      ansible.windows.win_service:
+        name: QEMU-GA
+        state: started
+        start_mode: auto
+
     - name: Set Network Profile to private
       ansible.windows.win_shell: |
         $p = Get-NetConnectionProfile
