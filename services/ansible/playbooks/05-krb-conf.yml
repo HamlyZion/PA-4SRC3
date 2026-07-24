@@ -1,0 +1,145 @@
+---
+# Royaume KRB.POC.BENCOPHARMA.LAB + trust unidirectionnel entrant depuis l'AD.
+
+- name: MIT KDC on krb01
+  hosts: krb01
+  vars:
+    krb_role: server
+    ad_mapped_users: ["alice.martin"]
+  tasks:
+    - name: Install Kerberos server
+      ansible.builtin.dnf:
+        name: [krb5-server, krb5-workstation]
+        state: present
+
+    - name: Deploy krb5.conf
+      ansible.builtin.template:
+        src: ../templates/krb5.conf.j2
+        dest: /etc/krb5.conf
+        mode: "0644"
+
+    - name: Deploy kdc.conf
+      ansible.builtin.template:
+        src: ../templates/kdc.conf.j2
+        dest: /var/kerberos/krb5kdc/kdc.conf
+        mode: "0600"
+
+    - name: kadm5.acl */admin principals can manage the realm
+      ansible.builtin.copy:
+        dest: /var/kerberos/krb5kdc/kadm5.acl
+        content: "*/admin@KRB.POC.BENCOPHARMA.LAB *\n"
+        mode: "0600"
+
+    - name: Create KDC database
+      ansible.builtin.command: kdb5_util create -s -P "{{ krb_master_password }}"
+      args:
+        creates: /var/kerberos/krb5kdc/principal
+      no_log: true
+
+    - name: Enumerate existing principals
+      ansible.builtin.command: kadmin.local -q "listprincs"
+      register: princs
+      changed_when: false
+
+    - name: Add Admin principal
+      ansible.builtin.command: >
+        kadmin.local -q "addprinc -pw {{ benco_admin_password }} benco/admin"
+      when: princs.stdout is not search('benco/admin@')
+      no_log: true
+
+    - name: Host principal for krb01 (for SSH)
+      ansible.builtin.command: >
+        kadmin.local -q "addprinc -randkey host/krb01.poc.bencopharma.lab"
+      when: princs.stdout is not search('host/krb01')
+
+    - name: Export host key to keytab
+      ansible.builtin.command: >
+        kadmin.local -q "ktadd host/krb01.poc.bencopharma.lab"
+      args:
+        creates: /etc/krb5.keytab
+
+    - name: "Cross-realm : shared secret MIT part (krbtgt/KRB@AD)"
+      ansible.builtin.command: >
+        kadmin.local -q "addprinc -pw {{ krb_trust_password }}
+        krbtgt/KRB.POC.BENCOPHARMA.LAB@AD.POC.BENCOPHARMA.LAB"
+      when: princs.stdout is not search('krbtgt/KRB.POC.BENCOPHARMA.LAB@AD')
+      no_log: true
+
+    - name: Open Kerberos ports
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop: ["88/tcp", "88/udp", "464/tcp", "464/udp", "749/tcp"]
+
+    - name: Enable KDC + kadmin
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [krb5kdc, kadmin]
+
+    - name: SSH accepts GSSAPI
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/50-gssapi.conf
+        content: |
+          GSSAPIAuthentication yes
+          GSSAPICleanupCredentials yes
+        mode: "0600"
+      notify: Restart sshd
+
+    - name: "Local accounts for mapped AD users"
+      ansible.builtin.user:
+        name: "{{ item }}"
+        comment: "AD-mapped via cross-realm trust"
+        shell: /bin/bash
+        password: "!"   # pas de mdp en dur que l'API GSS
+      loop: "{{ ad_mapped_users }}"
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted
+
+- name: AD side of the trust
+  hosts: dc01
+  tasks:
+    - name: "Cross-realm : shared secret AD part (out to MIT realm)"
+      ansible.windows.win_shell: |
+        $t = Get-ADTrust -Filter "Target -eq 'KRB.POC.BENCOPHARMA.LAB'" -ErrorAction SilentlyContinue
+        if (-not $t) {
+          netdom trust KRB.POC.BENCOPHARMA.LAB /Domain:AD.POC.BENCOPHARMA.LAB /add /realm /passwordt:{{ krb_trust_password }}
+          Write-Output CHANGED
+        }
+      register: trust
+      changed_when: trust.stdout is search('CHANGED')
+      no_log: true
+
+    - name: Force AES on the realm trust # RC4 sinon par defaut
+      ansible.windows.win_shell: |
+        $enc = ksetup /getenctypeattr KRB.POC.BENCOPHARMA.LAB 2>$null
+        if ($enc -notmatch 'AES256') {
+          ksetup /setenctypeattr KRB.POC.BENCOPHARMA.LAB AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
+          Write-Output CHANGED
+        }
+      register: aes
+      changed_when: aes.stdout is search('CHANGED')
+
+- name: Kerberos client on docker01 (demo)
+  hosts: docker01
+  vars:
+    krb_role: client
+  tasks:
+    - name: Install client tools
+      ansible.builtin.dnf:
+        name: krb5-workstation
+        state: present
+
+    - name: Deploy krb5.conf
+      ansible.builtin.template:
+        src: ../templates/krb5.conf.j2
+        dest: /etc/krb5.conf
+        mode: "0644"
+

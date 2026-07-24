@@ -1,0 +1,40 @@
+# Managed by Ansible
+# Trust unidirectionnel : AD vers MIT
+
+[libdefaults]
+    default_realm = KRB.POC.BENCOPHARMA.LAB
+    dns_lookup_kdc = true
+    dns_lookup_realm = false
+    rdns = false
+    ticket_lifetime = 24h
+    renew_lifetime = 7d
+    forwardable = true
+    default_ccache_name = KEYRING:persistent:%{uid}
+
+[realms]
+    KRB.POC.BENCOPHARMA.LAB = {
+        kdc = krb01.poc.bencopharma.lab
+        admin_server = krb01.poc.bencopharma.lab
+{% if krb_role | default('client') == 'server' %}
+{% for user in ad_mapped_users %}
+        auth_to_local = RULE:[1:$1@$0](^{{ user }}@AD\.POC\.BENCOPHARMA\.LAB$)s/@.*//
+{% endfor %}
+        auth_to_local = DEFAULT
+{% endif %}
+    }
+    AD.POC.BENCOPHARMA.LAB = {
+        kdc = dc01.ad.poc.bencopharma.lab
+        admin_server = dc01.ad.poc.bencopharma.lab
+    }
+
+[domain_realm]
+    .poc.bencopharma.lab = KRB.POC.BENCOPHARMA.LAB
+    poc.bencopharma.lab = KRB.POC.BENCOPHARMA.LAB
+    .ad.poc.bencopharma.lab = AD.POC.BENCOPHARMA.LAB
+    ad.poc.bencopharma.lab = AD.POC.BENCOPHARMA.LAB
+
+[capaths]
+    AD.POC.BENCOPHARMA.LAB = {
+        KRB.POC.BENCOPHARMA.LAB = .
+    }
+
