@@ -34,6 +34,16 @@
         install_dns: true
         reboot: true
 
+    - name: Add bencopharma.fr as alternate UPN suffix
+      ansible.windows.win_shell: |
+        $f = Get-ADForest
+        if ($f.UPNSuffixes -notcontains 'bencopharma.fr') {
+          Set-ADForest -Identity $f -UPNSuffixes @{Add='bencopharma.fr'}
+          Write-Output CHANGED
+        }
+      register: upn
+      changed_when: upn.stdout is search('CHANGED')
+
     - name: Ensure C:\Temp exists
       ansible.windows.win_file:
         path: C:\Temp
@@ -97,7 +107,8 @@
         firstname: Alice
         surname: Martin
         sam_account_name: alice.martin
-        upn: alice@ad.poc.bencopharma.lab
+        upn: alice.martin@bencopharma.fr
+        email: alice.martin@bencopharma.fr
         password: "{{ alice_password }}"
         password_never_expires: true
         path: OU=_Benco Users,DC=ad,DC=poc,DC=bencopharma,DC=lab
