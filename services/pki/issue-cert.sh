@@ -19,19 +19,26 @@ for san in "$@"; do
   fi
 done
 
+EXTFILE="$(mktemp)"
+cat > "${EXTFILE}" <<EOF
+subjectAltName = ${SANS}
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+basicConstraints = critical, CA:FALSE
+EOF
+
 openssl genrsa -out "${OUT}/${NAME}.key" 2048
 openssl req -new -sha256 -key "${OUT}/${NAME}.key" \
   -subj "/C=FR/O=bencopharma/OU=PoC/CN=${FQDN}" \
-  -addext "subjectAltName=${SANS}" \
   -out "${OUT}/${NAME}.csr"
 
 openssl x509 -req -sha256 -days "${DAYS}" \
   -in "${OUT}/${NAME}.csr" \
   -CA "${PKI}/ca.crt" -CAkey "${PKI}/ca.key" -CAcreateserial \
-  -copy_extensions copy \
+  -extfile "${EXTFILE}" \
   -out "${OUT}/${NAME}.crt"
 
+rm -f "${EXTFILE}"
 cat "${OUT}/${NAME}.crt" "${PKI}/ca.crt" > "${OUT}/${NAME}-fullchain.crt"
 echo "Émis dans ${OUT}/ :"
-openssl x509 -in "${OUT}/${NAME}.crt" -noout -subject -ext subjectAltName -enddate
-
+openssl x509 -in "${OUT}/${NAME}.crt" -noout -subject -ext subjectAltName,extendedKeyUsage -enddate
