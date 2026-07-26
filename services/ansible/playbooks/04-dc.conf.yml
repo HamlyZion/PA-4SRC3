@@ -101,9 +101,22 @@
         path: DC=ad,DC=poc,DC=bencopharma,DC=lab
         state: present
 
-    - name: Create demo user
+    - name: Create demo user bob
       microsoft.ad.user:
-        name: alice
+        name: Bob
+        firstname: Bob
+        surname: Dupont
+        sam_account_name: bob.dupont
+        upn: bob.dupont@bencopharma.fr
+        email: bob.dupont@bencopharma.fr
+        password: "{{ bob_password }}"
+        password_never_expires: true
+        path: OU=_Benco Users,DC=ad,DC=poc,DC=bencopharma,DC=lab
+        state: present
+
+    - name: Create demo user alice
+      microsoft.ad.user:
+        name: Alice
         firstname: Alice
         surname: Martin
         sam_account_name: alice.martin
