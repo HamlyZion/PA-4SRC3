@@ -1,0 +1,41 @@
+# Managed by Ansible — Postfix docker01
+
+myhostname = mail.bencopharma.fr
+mydomain = bencopharma.fr
+myorigin = $mydomain
+
+# Domaines perso
+mydestination =
+virtual_mailbox_domains = bencopharma.fr
+virtual_mailbox_maps = ldap:/etc/postfix/ldap-users.cf
+virtual_mailbox_base = /var/mail/vhosts
+virtual_minimum_uid = 100
+virtual_uid_maps = static:1000
+virtual_gid_maps = static:1000
+virtual_transport = lmtp:inet:dovecot:24
+
+# Réseaux internes sans besoin d'authent
+mynetworks = 127.0.0.0/8 10.10.30.0/24 10.10.10.0/24
+
+#Relais sortant Mailjet
+relayhost = [in-v3.mailjet.com]:587
+smtp_sasl_auth_enable = yes
+smtp_sasl_password_maps = static:{{ mailjet_api_key }}:{{ mailjet_secret_key }}
+smtp_sasl_security_options = noanonymous
+smtp_tls_security_level = encrypt
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+
+# TLS entrant (cert PKI interne)
+smtpd_tls_cert_file = /etc/pki/mail/mail.crt
+smtpd_tls_key_file = /etc/pki/mail/mail.key
+smtpd_tls_security_level = may
+smtpd_tls_auth_only = yes
+
+# Submission (587) : auth SASL via Dovecot
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = inet:dovecot:12345
+smtpd_sasl_auth_enable = yes
+smtpd_recipient_restrictions =
+    permit_mynetworks,
+    permit_sasl_authenticated,
+    reject_unauth_destination

@@ -1,0 +1,19 @@
+# Managed by Ansible — Dovecot auth LDAPS vers l'AD
+uris = ldaps://dc01.ad.poc.bencopharma.lab:636
+tls_ca_cert_file = /usr/local/share/ca-certificates/ca.crt
+tls_require_cert = hard
+
+dn = {{ ldap_bind_dn }}
+dnpass = {{ ldap_bind_pw }}
+
+auth_bind = yes
+base = OU=_Benco Users,DC=ad,DC=poc,DC=bencopharma,DC=lab
+scope = subtree
+
+pass_attrs = mail=user, sAMAccountName=username
+user_attrs = =user=%{ldap:mail}
+
+user_filter = (mail=%u)
+pass_filter = (mail=%u)
+
+debug_level = -1

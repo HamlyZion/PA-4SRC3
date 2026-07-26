@@ -1,0 +1,5 @@
+# Managed by Ansible — Caddy, terminaison TLS Mattermost
+mattermost.poc.bencopharma.lab:443 {
+    tls /etc/pki/web/mattermost.crt /etc/pki/web/mattermost.key
+    reverse_proxy mattermost:8065
+}
