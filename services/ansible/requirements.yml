@@ -10,4 +10,6 @@ collections:
     version: ">=3.0.0"
   - name: microsoft.ad
     version: ">=1.0.0"
+  - name: community.docker 
+    version: ">=5.0.0"
  

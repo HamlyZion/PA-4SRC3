@@ -1,0 +1,14 @@
+# Managed by Ansible — résolution des boîtes @bencopharma.fr via LDAPS/AD.
+
+server_host = ldaps://dc01.ad.poc.bencopharma.lab:636
+version = 3
+start_tls = no
+tls_ca_cert_file = /etc/pki/mail/ca.crt
+tls_require_cert = yes
+
+search_base = OU=_Benco Users,DC=ad,DC=poc,DC=bencopharma,DC=lab
+query_filter = (mail=%s)
+result_attribute = mail
+bind = yes
+bind_dn = {{ ldap_bind_dn }}
+bind_pw = {{ ldap_bind_pw }}

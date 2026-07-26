@@ -1,0 +1,37 @@
+# Managed by Ansible — Dovecot docker01 (IMAPS + auth LDAP/AD + LMTP)
+protocols = imap lmtp
+listen = *
+
+ssl = required
+ssl_cert = </etc/pki/mail/mail.crt
+ssl_key = </etc/pki/mail/mail.key
+
+mail_location = maildir:/srv/mail/%d/%n
+mail_uid = 1000
+mail_gid = 1000
+first_valid_uid = 1000
+
+# Auth via AD (LDAP)
+passdb {
+  driver = ldap
+  args = /etc/ldap/ldap.conf
+}
+userdb {
+  driver = static
+  args = uid=1000 gid=1000 home=/srv/mail/%d/%n
+}
+
+# Service SASL exposé à Postfix (submission 587)
+service auth {
+  inet_listener {
+    port = 12345
+  }
+}
+# LMTP : Postfix livre le courrier entrant à Dovecot
+service lmtp {
+  inet_listener lmtp {
+    port = 24
+  }
+}
+
+log_path = /dev/stderr

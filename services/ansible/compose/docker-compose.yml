@@ -1,0 +1,79 @@
+# Stack communication docker01 -> Postfix + Dovecot + Mattermost EE + Postgres + Caddy (terminaison TLS via PKI interne).
+services:
+
+  postfix:
+    image: boky/postfix:5.1.0-alpine
+    hostname: mail.bencopharma.fr
+    restart: unless-stopped
+    env_file: [./secrets/postfix.env]
+    volumes:
+      - ./postfix/main.cf:/etc/postfix/custom/main.cf:ro
+      - ./postfix/ldap-users.cf:/etc/postfix/ldap-users.cf:ro
+      - ./pki:/etc/pki/mail:ro,z
+      - maildata:/srv/vmail
+    networks: [commnet]
+    ports:
+      - "10.10.30.13:25:25"
+      - "10.10.30.13:587:587"
+
+  dovecot:
+    image: dovecot/dovecot:2.3-latest
+    hostname: imap.bencopharma.fr
+    restart: unless-stopped
+    volumes:
+      - ./dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./dovecot/dovecot-ldap.conf:/etc/ldap/ldap.conf:ro
+      - ./pki:/etc/pki/mail:ro,z
+      - ./pki/ca.crt:/usr/local/share/ca-certificates/ca.crt:ro,z
+      - maildata:/srv/mail
+    networks: [commnet]
+    ports:
+      - "10.10.30.13:993:993"   # IMAPS
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: [./secrets/postgres.env]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [commnet]
+
+  mattermost:
+    image: mattermost/mattermost-enterprise-edition:release-11
+    restart: unless-stopped
+    depends_on: [db]
+    env_file: [./secrets/mattermost.env]
+    volumes:
+      - mmdata:/mattermost/data
+      - mmconfig:/mattermost/config
+      - mmlogs:/mattermost/logs
+      - mmplugins:/mattermost/plugins
+      - ./pki/ca.crt:/etc/ssl/certs/bencopharma-ca.crt:ro,z  # LDAPS
+    networks: [commnet]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [mattermost]
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./pki:/etc/pki/web:ro,z
+    networks: [commnet]
+    ports:
+      - "10.10.30.13:443:443"
+
+networks:
+  commnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  maildata:
+  pgdata:
+  mmdata:
+  mmconfig:
+  mmlogs:
+  mmplugins:
+

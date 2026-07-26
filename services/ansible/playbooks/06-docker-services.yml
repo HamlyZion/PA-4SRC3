@@ -1,0 +1,136 @@
+---
+- name: LDAP bind account for services
+  hosts: dc01
+  tasks:
+    - name: Service account svc-ldap (bind read-only)
+      microsoft.ad.user:
+        name: svc-ldap
+        firstname: Service
+        surname: LDAP
+        sam_account_name: svc-ldap
+        upn: svc-ldap@ad.poc.bencopharma.lab
+        password: "{{ svc_ldap_password }}"
+        password_never_expires: true
+        description: "Bind LDAPS lecture seule (Postfix/Dovecot/Mattermost)"
+        path: OU=_Benco Users,DC=ad,DC=poc,DC=bencopharma,DC=lab
+        state: present
+      no_log: true
+
+- name: LDAPS certificate on dc01
+  hosts: dc01
+  tasks:
+    - name: Issue dc01 cert from internal CA (delegated to mgmt01)
+      delegate_to: localhost
+      ansible.builtin.command: >
+        {{ lookup('env','HOME') }}/pki/issue-cert.sh
+        dc01 dc01.ad.poc.bencopharma.lab 10.10.30.11
+      args:
+        creates: "{{ lookup('env','HOME') }}/pki/issued/dc01/dc01.crt"
+
+    - name: Import Root CA into dc01
+      ansible.windows.win_copy:
+        src: "{{ lookup('env','HOME') }}/pki/ca.crt"
+        dest: 'C:\Windows\Temp\ca.crt'
+
+    - name: Import CA into Trusted Root
+      ansible.windows.win_certificate_store:
+        path: 'C:\Windows\Temp\ca.crt'
+        store_location: LocalMachine
+        store_name: Root
+        state: present
+
+    - name: Copy signed cert to dc01
+      ansible.windows.win_copy:
+        src: "{{ lookup('env','HOME') }}/pki/issued/dc01/dc01-signed.crt"
+        dest: 'C:\Windows\Temp\dc01-signed.crt'
+
+- name: Communication stack on docker01
+  hosts: docker01
+  vars:
+    stack_dir: /opt/comm
+  tasks:
+    - name: Install Docker CE
+      block:
+        - name: Add Docker CE repo (official .repo file)
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/rhel/docker-ce.repo
+            dest: /etc/yum.repos.d/docker-ce.repo
+            mode: "0644"
+        - name: Docker packages
+          ansible.builtin.dnf:
+            name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
+            state: present
+        - name: Docker service
+          ansible.builtin.systemd:
+            name: docker
+            enabled: true
+            state: started
+
+    - name: Issue mail + mattermost certs (delegated to mgmt01)
+      delegate_to: localhost
+      ansible.builtin.command: "{{ lookup('env','HOME') }}/pki/issue-cert.sh {{ item.n }} {{ item.f }} 10.10.30.13"
+      args:
+        creates: "{{ lookup('env','HOME') }}/pki/issued/{{ item.n }}/{{ item.n }}.crt"
+      loop:
+        - { n: "mail", f: "mail.bencopharma.fr" }
+        - { n: "mattermost", f: "mattermost.poc.bencopharma.lab" }
+
+    - name: Create directory tree
+      ansible.builtin.file:
+        path: "{{ stack_dir }}/{{ item }}"
+        state: directory
+        mode: "0750"
+      loop: [postfix, dovecot, caddy, pki, secrets]
+
+    - name: Deploy services configs
+      ansible.builtin.template:
+        src: "../templates/{{ item.s }}"
+        dest: "{{ stack_dir }}/{{ item.d }}"
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.owner | default('root') }}"
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - { s: postfix-main.cf.j2,       d: postfix/main.cf }
+        - { s: postfix-ldap-users.cf.j2, d: postfix/ldap-users.cf, mode: '0640' }
+        - { s: dovecot.conf.j2,          d: dovecot/dovecot.conf,      owner: '1000' }
+        - { s: dovecot-ldap.conf.j2,     d: dovecot/dovecot-ldap.conf, owner: '1000', mode: '0640' }
+        - { s: Caddyfile.j2,             d: caddy/Caddyfile }
+        - { s: mattermost.env.j2,        d: secrets/mattermost.env, mode: '0600' }
+
+    - name: Set good perms on vmail directoty 
+      ansible.builtin.file:
+        path: /srv/mail
+        state: directory
+        owner: "1000"
+        mode: '0740'
+
+    - name: Copy compose file
+      ansible.builtin.copy:
+        src: "{{ inventory_dir }}/compose/docker-compose.yml"
+        dest: "{{ stack_dir }}/docker-compose.yml"
+        mode: "0640"
+
+    - name: Deploy PKI material (certs pour les conteneurs)
+      ansible.builtin.copy:
+        src: "{{ lookup('env','HOME') }}/pki/{{ item.s }}"
+        dest: "{{ stack_dir }}/pki/{{ item.d }}"
+        mode: "{{ item.mode | default('0640') }}"
+      loop:
+        - { s: "ca.crt", d: "ca.crt", mode: '644' }
+        - { s: "issued/mail/mail.crt", d: "mail.crt", mode: '644' }
+        - { s: "issued/mail/mail.key", d: "mail.key" }
+        - { s: "issued/mattermost/mattermost.crt", d: "mattermost.crt", mode: '644' }
+        - { s: "issued/mattermost/mattermost.key", d: "mattermost.key" }
+
+    - name: Deploy secret env files
+      ansible.builtin.template:
+        src: "{{ inventory_dir }}/templates/{{ item }}.j2"
+        dest: "{{ stack_dir }}/secrets/{{ item }}"
+        mode: "0600"
+      loop: [ postfix.env, postgres.env]
+
+    - name: Launch the stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ stack_dir }}"
+        state: present
+
