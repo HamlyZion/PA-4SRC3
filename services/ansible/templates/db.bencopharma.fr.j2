@@ -1,0 +1,9 @@
+$TTL 3600
+@   IN SOA dns01.poc.bencopharma.lab. hostmaster.poc.bencopharma.lab. (
+        {{ zone_serial }} 3600 900 604800 300 )
+    IN NS dns01.poc.bencopharma.lab.
+
+mail  IN A 10.10.30.13
+smtp  IN A 10.10.30.13
+imap  IN A 10.10.30.13
+@     IN MX 10 mail.bencopharma.fr.

@@ -3,7 +3,7 @@
   hosts: dns01
   gather_facts: true
   vars:
-    zone_serial: 2026072001          # AAAA MM JJ NN -> à modifier à chaque changement de version
+    zone_serial: 2026072601          # AAAA MM JJ NN -> à modifier à chaque changement de version
     lab_networks:
       - 10.10.10.0/24
       - 10.10.20.0/24
@@ -47,6 +47,16 @@
         group: named
         mode: "0640"
         validate: named-checkzone 30.10.10.in-addr.arpa %s
+      notify: Reload named
+
+    - name: Deploy bencopharma.fr (prod)
+      ansible.builtin.template:
+        src: ../templates/db.bencopharma.fr.j2
+        dest: /var/named/db.bencopharma.fr
+        owner: root
+        group: named
+        mode: "0640"
+        validate: named-checkzone bencopharma.fr %s
       notify: Reload named
 
     - name: Open DNS in firewalld
